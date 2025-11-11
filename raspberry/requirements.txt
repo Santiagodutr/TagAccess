@@ -1,0 +1,7 @@
+supabase
+flask
+requests
+sqlite-utils
+websocket-client
+python-dotenv
+pytest
