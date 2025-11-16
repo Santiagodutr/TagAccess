@@ -1,0 +1,147 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard · TagPass{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+  <header class="dashboard__header">
+    <h1>Panel de control</h1>
+    <p>Consulta la actividad reciente del sistema RFID conectada a la Raspberry Pi.</p>
+  </header>
+
+  {% if logs_error %}
+  <div class="banner banner--error">
+    Ocurrió un problema al cargar los registros: {{ logs_error }}
+  </div>
+  {% endif %}
+
+  <section class="dashboard__filters">
+    <form class="filters" method="get">
+      <div class="filters__row">
+        <div class="filters__field">
+          <label for="student">Estudiante</label>
+          <select id="student" name="student">
+            <option value="">Todos</option>
+            {% if filters.student and filters.student not in filter_options.students %}
+            <option value="{{ filters.student }}" selected>{{ filters.student }}</option>
+            {% endif %}
+            {% for option in filter_options.students %}
+            <option value="{{ option }}" {% if option == filters.student %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="filters__field">
+          <label for="room">Salón</label>
+          <select id="room" name="room">
+            <option value="">Todos</option>
+            {% if filters.room and filters.room not in filter_options.rooms %}
+            <option value="{{ filters.room }}" selected>{{ filters.room }}</option>
+            {% endif %}
+            {% for option in filter_options.rooms %}
+            <option value="{{ option }}" {% if option == filters.room %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="filters__field">
+          <label for="building">Edificio</label>
+          <select id="building" name="building">
+            <option value="">Todos</option>
+            {% if filters.building and filters.building not in filter_options.buildings %}
+            <option value="{{ filters.building }}" selected>{{ filters.building }}</option>
+            {% endif %}
+            {% for option in filter_options.buildings %}
+            <option value="{{ option }}" {% if option == filters.building %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="filters__row">
+        <div class="filters__field">
+          <label for="start_date">Desde</label>
+          <input id="start_date" name="start_date" type="date" value="{{ filters.start_date }}">
+        </div>
+        <div class="filters__field">
+          <label for="end_date">Hasta</label>
+          <input id="end_date" name="end_date" type="date" value="{{ filters.end_date }}">
+        </div>
+        <div class="filters__field">
+          <label for="limit">Límite</label>
+          <input id="limit" name="limit" type="number" min="1" max="500" value="{{ filters.limit }}" placeholder="50">
+        </div>
+        <div class="filters__actions">
+          <button class="btn btn--primary" type="submit">Aplicar filtros</button>
+          <a class="btn btn--secondary" href="{{ url_for('dashboard') }}">Limpiar</a>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <section class="dashboard__cards">
+    <article class="stat-card">
+      <h2 class="stat-card__title">Sesión activa</h2>
+      <p class="stat-card__value">{{ user.email }}</p>
+    </article>
+    <article class="stat-card">
+      <h2 class="stat-card__title">Eventos registrados</h2>
+      <p class="stat-card__value">{{ logs|length }}</p>
+    </article>
+  </section>
+
+  <section class="dashboard__table">
+    <h2>Últimos accesos</h2>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>UID</th>
+            <th>Estudiante</th>
+            <th>Salón</th>
+            <th>Edificio</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if logs %}
+            {% for log in logs %}
+            <tr>
+              <td data-title="UID">{{ log.uid or "N/D" }}</td>
+              <td data-title="Estudiante">{{ log._student_label or "Desconocido" }}</td>
+              <td data-title="Salón">{{ log._room_label or "Sin dato" }}</td>
+              <td data-title="Edificio">{{ log._building_label or "Sin dato" }}</td>
+              <td data-title="Acciones">
+                <form
+                  class="table-action"
+                  method="post"
+                  action="{{ url_for('block_access') }}"
+                  data-student="{{ (log._student_label or '')|e }}"
+                  data-room="{{ (log._room_label or '')|e }}"
+                >
+                  <input name="uid" type="hidden" value="{{ log.uid or '' }}">
+                  <input name="student" type="hidden" value="{{ log._student_label or '' }}">
+                  <input name="room" type="hidden" value="{{ log._room_value or '' }}">
+                  <input name="building" type="hidden" value="{{ log._building_value or '' }}">
+                  <input name="reason" type="hidden" value="">
+                  <input name="next" type="hidden" value="{{ request.full_path }}">
+                  {% if log._is_blocked %}
+                  <button class="btn btn--disabled" type="button" disabled>Bloqueado</button>
+                  {% else %}
+                  <button class="btn btn--danger block-btn" type="button">Bloquear</button>
+                  {% endif %}
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td class="table__empty" colspan="5">No hay registros disponibles todavía.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

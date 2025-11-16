@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block title %}Iniciar sesión · TagPass{% endblock %}
+
+{% block content %}
+<section class="auth-card">
+  <h1 class="auth-card__title">Sistema de acceso RFID</h1>
+  <p class="auth-card__subtitle">Ingresa tus credenciales para continuar.</p>
+  <form class="auth-form" method="post">
+    <label class="auth-form__label" for="email">Correo electrónico</label>
+    <input class="auth-form__input" id="email" name="email" type="email" placeholder="usuario@ejemplo.com" required>
+
+    <label class="auth-form__label" for="password">Contraseña</label>
+    <input class="auth-form__input" id="password" name="password" type="password" placeholder="••••••••" required>
+
+    <button class="auth-form__submit" type="submit">Iniciar sesión</button>
+  </form>
+</section>
+{% endblock %}
