@@ -1,0 +1,279 @@
+{% extends "layout.html" %}
+{% block title %}Gestión de Tarjetas · TagPass{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+  <header class="dashboard__header">
+    <h1>Gestión de Tarjetas RFID</h1>
+    <p>Crea, edita y asigna tarjetas a usuarios.</p>
+  </header>
+
+  <!-- BOTÓN PARA AÑADIR TARJETA -->
+  <div style="margin-bottom: 2rem;">
+    <button class="btn btn--primary" onclick="openAddModal()">+ Nueva Tarjeta</button>
+  </div>
+
+  <section class="dashboard__table">
+    <h2>Tarjetas Disponibles</h2>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>UID</th>
+            <th>Nombre</th>
+            <th>Código</th>
+            <th>Usuario Asignado</th>
+            <th>Fecha Creación</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if cards %}
+            {% for card in cards %}
+            <tr>
+              <td data-title="UID">
+                <small>{{ card.uid[:12] }}...</small>
+              </td>
+              <td data-title="Nombre">{{ card.person_name or "—" }}</td>
+              <td data-title="Código">{{ card.student_code or "—" }}</td>
+              <td data-title="Usuario">
+                {% if card._user %}
+                  <span class="badge badge--info">{{ card._user.name }}</span>
+                {% else %}
+                  <span style="color: #718096; font-style: italic;">Sin asignar</span>
+                {% endif %}
+              </td>
+              <td data-title="Fecha">{{ card.created_at[:10] if card.get('created_at') else "N/D" }}</td>
+              <td data-title="Acciones">
+                <div class="action-menu">
+                  <button class="action-menu__toggle" onclick="toggleMenu(event, 'menu-{{ loop.index }}')">⋮</button>
+                  <div id="menu-{{ loop.index }}" class="action-menu__dropdown" style="display: none;">
+                    <button type="button" class="action-menu__item" onclick="editCard(this)" 
+                      data-uid="{{ card.uid }}" 
+                      data-name="{{ card.person_name }}" 
+                      data-code="{{ card.student_code }}"
+                      data-user-id="{{ card.user_id or '' }}">
+                      Editar
+                    </button>
+                    <button type="button" class="action-menu__item" onclick="deleteCard(this, '{{ card.person_name }}')" 
+                      data-uid="{{ card.uid }}">
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td class="table__empty" colspan="6">No hay tarjetas disponibles.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+<!-- MODAL PARA AÑADIR TARJETA -->
+<div id="add-modal" class="modal">
+  <div class="modal__content">
+    <div class="modal__header">
+      <h3>Nueva Tarjeta RFID</h3>
+      <button class="modal__close" onclick="closeAddModal()">&times;</button>
+    </div>
+    <form method="post" action="{{ url_for('add_card') }}" class="form">
+      <div class="form__group">
+        <label class="form__label" for="add-uid">UID de la Tarjeta</label>
+        <input class="form__input" id="add-uid" name="uid" type="text" placeholder="UID único" required>
+      </div>
+
+      <div class="form__group">
+        <label class="form__label" for="add-name">Nombre</label>
+        <input class="form__input" id="add-name" name="name" type="text" placeholder="Nombre de la tarjeta/usuario" required>
+      </div>
+
+      <div class="form__group">
+        <label class="form__label" for="add-code">Código Estudiante</label>
+        <input class="form__input" id="add-code" name="code" type="text" placeholder="Código único" required>
+      </div>
+
+      <div class="form__group">
+        <label class="form__label" for="add-user">Asignar a Usuario (Opcional)</label>
+        <select class="form__input" id="add-user" name="user_id">
+          <option value="">— Sin asignar —</option>
+          {% for u in users %}
+          <option value="{{ u.id }}">{{ u.name }} ({{ u.email }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <input name="next" type="hidden" value="{{ request.full_path }}">
+      <div class="modal__footer">
+        <button class="btn btn--secondary" type="button" onclick="closeAddModal()">Cancelar</button>
+        <button class="btn btn--primary" type="submit">Crear Tarjeta</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL PARA EDITAR TARJETA -->
+<div id="edit-modal" class="modal">
+  <div class="modal__content">
+    <div class="modal__header">
+      <h3>Editar Tarjeta RFID</h3>
+      <button class="modal__close" onclick="closeEditModal()">&times;</button>
+    </div>
+    <form method="post" id="edit-form" class="form">
+      <div class="form__group">
+        <label class="form__label" for="edit-uid">UID de la Tarjeta</label>
+        <input class="form__input" id="edit-uid" name="uid" type="text" required>
+      </div>
+
+      <div class="form__group">
+        <label class="form__label" for="edit-name">Nombre</label>
+        <input class="form__input" id="edit-name" name="name" type="text" required>
+      </div>
+
+      <div class="form__group">
+        <label class="form__label" for="edit-code">Código Estudiante</label>
+        <input class="form__input" id="edit-code" name="code" type="text" required>
+      </div>
+
+      <div class="form__group">
+        <label class="form__label" for="edit-user">Asignar a Usuario</label>
+        <select class="form__input" id="edit-user" name="user_id">
+          <option value="">— Sin asignar —</option>
+          {% for u in users %}
+          <option value="{{ u.id }}">{{ u.name }} ({{ u.email }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <input name="next" type="hidden" value="{{ request.full_path }}">
+      <div class="modal__footer">
+        <button class="btn btn--secondary" type="button" onclick="closeEditModal()">Cancelar</button>
+        <button class="btn btn--primary" type="submit">Guardar Cambios</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL PARA ELIMINAR TARJETA -->
+<div id="delete-modal" class="modal">
+  <div class="modal__content">
+    <div class="modal__header">
+      <h3>Eliminar Tarjeta</h3>
+      <button class="modal__close" onclick="closeDeleteModal()">&times;</button>
+    </div>
+    <div style="margin-bottom: 1.5rem; line-height: 1.8;">
+      <p>¿Eliminar la tarjeta <strong id="delete-name"></strong>?</p>
+      <p style="color: #c53030; font-weight: 600; font-size: 0.9rem; margin-top: 1rem;">Esta acción no se puede deshacer.</p>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" type="button" onclick="closeDeleteModal()">Cancelar</button>
+      <button class="btn btn--danger" type="button" onclick="confirmDelete()">Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentDeleteId = null;
+
+  function toggleMenu(event, menuId) {
+    event.stopPropagation();
+    const menu = document.getElementById(menuId);
+    
+    document.querySelectorAll('.action-menu__dropdown').forEach(m => {
+      if (m.id !== menuId) {
+        m.style.display = 'none';
+      }
+    });
+    
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function openAddModal() {
+    document.getElementById('add-modal').classList.add('active');
+  }
+
+  function closeAddModal() {
+    document.getElementById('add-modal').classList.remove('active');
+    document.querySelector('#add-modal form').reset();
+  }
+
+  function editCard(button) {
+    const cardUid = button.dataset.uid;
+    const uid = button.dataset.uid;
+    const name = button.dataset.name;
+    const code = button.dataset.code;
+    const userId = button.dataset.userId;
+
+    document.getElementById('edit-uid').value = uid;
+    document.getElementById('edit-name').value = name;
+    document.getElementById('edit-code').value = code;
+    document.getElementById('edit-user').value = userId;
+    document.getElementById('edit-form').action = '{{ url_for("edit_card", card_uid="CARD_UID") }}'.replace('CARD_UID', encodeURIComponent(cardUid));
+
+    document.querySelectorAll('.action-menu__dropdown').forEach(m => {
+      m.style.display = 'none';
+    });
+
+    document.getElementById('edit-modal').classList.add('active');
+  }
+
+  function closeEditModal() {
+    document.getElementById('edit-modal').classList.remove('active');
+  }
+
+  function deleteCard(button, name) {
+    currentDeleteId = button.dataset.uid;
+    document.getElementById('delete-name').textContent = name;
+    
+    document.querySelectorAll('.action-menu__dropdown').forEach(m => {
+      m.style.display = 'none';
+    });
+    
+    document.getElementById('delete-modal').classList.add('active');
+  }
+
+  function closeDeleteModal() {
+    document.getElementById('delete-modal').classList.remove('active');
+    currentDeleteId = null;
+  }
+
+  function confirmDelete() {
+    if (!currentDeleteId) return;
+    
+    closeDeleteModal();
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{{ url_for("delete_card", card_uid="CARD_UID") }}'.replace('CARD_UID', encodeURIComponent(currentDeleteId));
+    
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'next';
+    input.value = '{{ request.full_path }}';
+    form.appendChild(input);
+    
+    document.body.appendChild(form);
+    form.submit();
+  }
+
+  document.addEventListener('click', function(event) {
+    if (!event.target.closest('.action-menu')) {
+      document.querySelectorAll('.action-menu__dropdown').forEach(m => {
+        m.style.display = 'none';
+      });
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      closeAddModal();
+      closeEditModal();
+      closeDeleteModal();
+    }
+  });
+</script>
+{% endblock %}

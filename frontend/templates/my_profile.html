@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+{% block title %}Mi Perfil · TagPass{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+  <header class="dashboard__header">
+    <h1>Mi Perfil</h1>
+    <p>Información de tu cuenta y tarjeta RFID.</p>
+  </header>
+
+  <!-- INFORMACIÓN DE USUARIO -->
+  <section class="dashboard__section">
+    <h2>Información de la Cuenta</h2>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+      <div>
+        <p style="color: #718096; font-weight: 600; margin-bottom: 0.5rem;">Nombre</p>
+        <p style="color: #2d3748; font-size: 1.1rem;">{{ user.name }}</p>
+      </div>
+      <div>
+        <p style="color: #718096; font-weight: 600; margin-bottom: 0.5rem;">Email</p>
+        <p style="color: #2d3748; font-size: 1.1rem;">{{ user.email }}</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TARJETA RFID -->
+  <section class="dashboard__section">
+    <h2>Tarjeta RFID</h2>
+    {% if user_card %}
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 2rem; color: white;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+        <div>
+          <p style="color: rgba(255,255,255,0.8); margin-bottom: 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">UID</p>
+          <p style="font-size: 1.2rem; font-weight: 600; word-break: break-all;">{{ user_card.uid }}</p>
+        </div>
+        <div>
+          <p style="color: rgba(255,255,255,0.8); margin-bottom: 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">Código</p>
+          <p style="font-size: 1.2rem; font-weight: 600;">{{ user_card.student_code }}</p>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div style="background: #fef5f5; border-left: 4px solid #fc8181; border-radius: 8px; padding: 1.5rem; color: #c53030;">
+      <p style="margin: 0;"><strong>Tarjeta no asignada</strong></p>
+      <p style="margin: 0.5rem 0 0 0; font-size: 0.95rem;">Contacta al administrador para que te asigne una tarjeta RFID.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- ÚLTIMOS ACCESOS -->
+  {% if user_card %}
+  <section class="dashboard__table">
+    <h2>Mis Últimos Accesos</h2>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Salón</th>
+            <th>Edificio</th>
+            <th>Estado</th>
+            <th>Hora</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if accesses %}
+            {% for access in accesses %}
+            <tr>
+              <td data-title="Salón">
+                {{ access.room.name if access.get('room') else "—" }}
+              </td>
+              <td data-title="Edificio">
+                {{ access.building.name if access.get('building') else "—" }}
+              </td>
+              <td data-title="Estado">
+                {% if access.authorized %}
+                  <span class="badge badge--success">Autorizado</span>
+                {% else %}
+                  <span class="badge badge--danger">Denegado</span>
+                {% endif %}
+              </td>
+              <td data-title="Hora">
+                <small>{{ access.event_time[:16]|replace('T', ' ') if access.get('event_time') else "N/D" }}</small>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td class="table__empty" colspan="4">No hay accesos registrados.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</section>
+{% endblock %}

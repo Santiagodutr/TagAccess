@@ -19,22 +19,20 @@
         </div>
         {% if session.get('user') %}
         <nav class="site-header__nav">
-          <a class="site-header__link" href="{{ url_for('dashboard') }}">Accesos</a>
-          <a class="site-header__link" href="{{ url_for('blocked_cards') }}">Bloqueados</a>
+          <a class="site-header__link" href="{{ url_for('dashboard') }}">Dashboard</a>
+          {% if session['user'].get('is_admin') %}
+          <a class="site-header__link" href="{{ url_for('blocked_cards') }}">Bloqueos</a>
           <a class="site-header__link" href="{{ url_for('spaces') }}">Espacios</a>
+          <a class="site-header__link" href="{{ url_for('manage_cards') }}">Tarjetas</a>
+          {% endif %}
         </nav>
         <div class="site-header__right">
           <span class="site-header__user">{{ session['user']['email'] }}</span>
-          <a class="site-header__button" href="{{ url_for('logout') }}">Cerrar sesión</a>
+          <a class="site-header__button" href="{{ url_for('my_profile') }}" style="text-decoration: none;">Mi Perfil</a>
+          <a class="site-header__button" href="{{ url_for('logout') }}" style="text-decoration: none;">Cerrar sesión</a>
         </div>
         {% endif %}
       </div>
-      {% if session.get('user') %}
-      <div class="site-header__cta">
-        <a class="site-header__cta-btn" href="{{ url_for('blocked_cards') }}">Ver bloqueados</a>
-        <a class="site-header__cta-btn" href="{{ url_for('spaces') }}">Gestionar espacios</a>
-      </div>
-      {% endif %}
     </header>
 
     <main class="container">

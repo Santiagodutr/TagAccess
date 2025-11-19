@@ -34,18 +34,7 @@
     </article>
   </section>
 
-  <!-- QUICK ACTIONS -->
-  <section class="quick-actions">
-    <a href="{{ url_for('blocked_cards') }}" class="quick-action-btn">
-      <span class="quick-action-btn__label">Ver Bloqueados</span>
-    </a>
-    <a href="{{ url_for('spaces') }}" class="quick-action-btn">
-      <span class="quick-action-btn__label">Gestionar Espacios</span>
-    </a>
-    <button class="quick-action-btn" onclick="openBlockModal()">
-      <span class="quick-action-btn__label">Bloquear Tarjeta</span>
-    </button>
-  </section>
+
 
   <!-- FILTROS SIMPLIFICADOS -->
   <section class="dashboard__filters">
@@ -56,27 +45,42 @@
           <label for="search-type">Tipo de Búsqueda</label>
           <select id="search-type" name="search_type" onchange="updateSearchInput()">
             <option value="all" {% if filters.search_type == 'all' or not filters.search_type %}selected{% endif %}>Todos</option>
-            <option value="name" {% if filters.search_type == 'name' %}selected{% endif %}>Por Nombre</option>
-            <option value="code" {% if filters.search_type == 'code' %}selected{% endif %}>Por Código</option>
-            <option value="uid" {% if filters.search_type == 'uid' %}selected{% endif %}>Por UID</option>
+            <option value="name" {% if filters.search_type == 'name' %}selected{% endif %}>Por Nombre (Tarjeta)</option>
+            <option value="code" {% if filters.search_type == 'code' %}selected{% endif %}>Por Código (Tarjeta)</option>
+            <option value="uid" {% if filters.search_type == 'uid' %}selected{% endif %}>Por UID (Tarjeta)</option>
+            <option value="user" {% if filters.search_type == 'user' %}selected{% endif %}>Por Usuario Asignado</option>
           </select>
         </div>
 
         <div class="filters__field">
-          <label for="student">Estudiante</label>
+          <label for="student">Buscar</label>
+          <!-- Input de texto para búsqueda por nombre, código, UID -->
           <input 
             id="student" 
             name="student" 
             type="text"
-            placeholder="Buscar..."
+            placeholder="Escribe para buscar..."
             value="{{ filters.student }}"
-            list="students-list"
+            list="search-options"
+            autocomplete="off"
+            style="display: {% if filters.search_type == 'user' %}none{% else %}block{% endif %};"
           >
-          <datalist id="students-list">
-            {% for student in filter_options.get(filter_options.current_list, []) %}
-            <option value="{{ student }}">
-            {% endfor %}
+          <datalist id="search-options">
+            <!-- Se llena dinámicamente con JavaScript -->
           </datalist>
+          
+          <!-- Select para búsqueda por usuario -->
+          <select 
+            id="student-select" 
+            name="student" 
+            style="display: {% if filters.search_type == 'user' %}block{% else %}none{% endif %};"
+            onchange="document.getElementById('filters-form').submit();"
+          >
+            <option value="">— Seleccionar Usuario —</option>
+            {% for user in filter_options.users %}
+            <option value="{{ user.id }}" {% if user.id == filters.student %}selected{% endif %}>{{ user.name }} ({{ user.email }})</option>
+            {% endfor %}
+          </select>
         </div>
 
         <div class="filters__field">
@@ -95,7 +99,7 @@
             <option value="">Todos</option>
             {% if filters.building and filters.building in filter_options.rooms_by_building %}
               {% for room in filter_options.rooms_by_building[filters.building] %}
-              <option value="{{ room }}" {% if room == filters.room %}selected{% endif %}>{{ room }}</option>
+              <option value="{{ room.name }}" {% if room.name == filters.room %}selected{% endif %}>{{ room.name }}</option>
               {% endfor %}
             {% else %}
               {% for room in filter_options.get('rooms', []) %}
@@ -106,13 +110,13 @@
         </div>
 
         <div class="filters__field">
-          <label for="start_date">Desde</label>
-          <input id="start_date" name="start_date" type="date" value="{{ filters.start_date }}">
+          <label for="start_date">Desde (Fecha y Hora)</label>
+          <input id="start_date" name="start_date" type="datetime-local" value="{{ filters.start_date }}">
         </div>
 
         <div class="filters__field">
-          <label for="end_date">Hasta</label>
-          <input id="end_date" name="end_date" type="date" value="{{ filters.end_date }}">
+          <label for="end_date">Hasta (Fecha y Hora)</label>
+          <input id="end_date" name="end_date" type="datetime-local" value="{{ filters.end_date }}">
         </div>
       </div>
 
@@ -134,6 +138,7 @@
             <th>Salón</th>
             <th>Estado</th>
             <th>Hora</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -158,11 +163,21 @@
               <td data-title="Hora">
                 <small>{{ log._timestamp[:16]|replace('T', ' ') if log._timestamp else "N/D" }}</small>
               </td>
+              <td data-title="Acciones">
+                <div class="action-menu">
+                  <button class="action-menu__toggle" onclick="toggleMenu(event, 'menu-{{ loop.index }}')">⋮</button>
+                  <div id="menu-{{ loop.index }}" class="action-menu__dropdown" style="display: none;">
+                    <button type="button" class="action-menu__item" onclick="openBlockMenuModal('{{ log.card_uid }}', '{{ log._student_label }}', '{{ log._room_label }}')">
+                      Bloquear Tarjeta
+                    </button>
+                  </div>
+                </div>
+              </td>
             </tr>
             {% endfor %}
           {% else %}
             <tr>
-              <td class="table__empty" colspan="4">No hay registros con los filtros seleccionados.</td>
+              <td class="table__empty" colspan="5">No hay registros con los filtros seleccionados.</td>
             </tr>
           {% endif %}
         </tbody>
@@ -178,11 +193,15 @@
       <h3>Bloquear Acceso a Tarjeta</h3>
       <button class="modal__close" onclick="closeBlockModal()">&times;</button>
     </div>
-    <form method="post" action="{{ url_for('block_access') }}" class="form" id="block-form" onsubmit="handleBlockSubmit(event)">
+    <form method="post" action="{{ url_for('block_access') }}" class="form" id="block-form">
       <div class="form__group">
-        <label class="form__label" for="block-student">Seleccionar Estudiante</label>
-        <input class="form__input" id="block-student" name="student_search" type="text" placeholder="Buscar estudiante..." autocomplete="off" required>
-        <input name="card_uid" type="hidden" id="block-card-uid">
+        <label class="form__label" for="block-student">Estudiante</label>
+        <input class="form__input" id="block-student" name="student_name" type="text" readonly>
+      </div>
+
+      <div class="form__group">
+        <label class="form__label" for="block-card-uid">UID Tarjeta</label>
+        <input class="form__input" id="block-card-uid" name="card_uid" type="text" readonly>
       </div>
       
       <div class="form__group">
@@ -192,7 +211,7 @@
           {% for building_name, rooms in filter_options.rooms_by_building.items() %}
             <optgroup label="{{ building_name }}">
               {% for room in rooms %}
-              <option value="{{ room }}">{{ room }}</option>
+              <option value="{{ room.id }}">{{ room.name }}</option>
               {% endfor %}
             </optgroup>
           {% endfor %}
@@ -212,28 +231,147 @@
   </div>
 </div>
 
-<!-- MODAL DE CONFIRMACIÓN -->
-<div id="confirm-modal" class="modal">
-  <div class="modal__content">
-    <div class="modal__header">
-      <h3>Confirmar Bloqueo</h3>
-      <button class="modal__close" onclick="closeConfirmModal()">&times;</button>
-    </div>
-    <div style="margin-bottom: 1.5rem; line-height: 1.6;">
-      <p>Estudiante: <strong id="confirm-student"></strong></p>
-      <p>Salón: <strong id="confirm-room"></strong></p>
-      <p>Motivo: <strong id="confirm-reason"></strong></p>
-      <p style="color: #c53030; font-weight: 600; margin-top: 1rem;">Esta acción no se puede deshacer.</p>
-    </div>
-    <div class="modal__footer">
-      <button class="btn btn--secondary" type="button" onclick="closeConfirmModal()">Cancelar</button>
-      <button class="btn btn--danger" type="button" onclick="confirmBlock()">Confirmar Bloqueo</button>
-    </div>
-  </div>
-</div>
-
 <script>
-  function openBlockModal() {
+  // Almacenar datos de búsqueda desde Jinja2
+  const searchData = {
+    names: [
+      {% for name in filter_options.students_by_name %}
+      "{{ name }}",
+      {% endfor %}
+    ],
+    codes: [
+      {% for code in filter_options.students_by_code %}
+      "{{ code }}",
+      {% endfor %}
+    ],
+    uids: [
+      {% for uid in filter_options.students_by_uid %}
+      "{{ uid }}",
+      {% endfor %}
+    ],
+    users: [
+      {% for user in filter_options.users %}
+      { id: "{{ user.id }}", name: "{{ user.name }}", email: "{{ user.email }}" },
+      {% endfor %}
+    ],
+  };
+
+  // Almacenar datos de salones por edificio desde Jinja2
+  const roomsByBuilding = {
+    {% for building_name, rooms in filter_options.rooms_by_building.items() %}
+    "{{ building_name }}": [
+      {% for room in rooms %}
+      { id: "{{ room.id }}", name: "{{ room.name }}" },
+      {% endfor %}
+    ],
+    {% endfor %}
+  };
+
+  function updateSearchInput() {
+    const searchType = document.getElementById('search-type').value;
+    const studentInput = document.getElementById('student');
+    const studentSelect = document.getElementById('student-select');
+    const datalist = document.getElementById('search-options');
+
+    // Mostrar/ocultar input y select según el tipo de búsqueda
+    if (searchType === 'user') {
+      // Mostrar select para usuarios, ocultar input
+      studentInput.style.display = 'none';
+      studentSelect.style.display = 'block';
+      // Limpiar input de texto para evitar conflictos
+      studentInput.value = '';
+    } else {
+      // Mostrar input, ocultar select
+      studentInput.style.display = 'block';
+      studentSelect.style.display = 'none';
+      // Limpiar select para evitar conflictos
+      studentSelect.value = '';
+      
+      // Limpiar datalist
+      datalist.innerHTML = '';
+
+      // Obtener opciones según el tipo de búsqueda
+      let options = [];
+      switch (searchType) {
+        case 'name':
+          options = searchData.names;
+          break;
+        case 'code':
+          options = searchData.codes;
+          break;
+        case 'uid':
+          options = searchData.uids;
+          break;
+        case 'all':
+        default:
+          // Mostrar todo
+          options = [
+            ...searchData.names,
+            ...searchData.codes,
+            ...searchData.uids,
+          ];
+          break;
+      }
+
+      // Agregar opciones al datalist
+      options.forEach(option => {
+        const optElement = document.createElement('option');
+        optElement.value = option;
+        datalist.appendChild(optElement);
+      });
+    }
+    
+    document.getElementById('search-type').dataset.lastType = searchType;
+  }
+
+  function updateRoomsByBuilding() {
+    const buildingSelect = document.getElementById('building');
+    const roomSelect = document.getElementById('room');
+    const selectedBuilding = buildingSelect.value;
+
+    // Limpiar opciones excepto la primera (Todos)
+    while (roomSelect.options.length > 1) {
+      roomSelect.remove(1);
+    }
+
+    // Si se selecciona un edificio específico, mostrar sus salones
+    if (selectedBuilding && roomsByBuilding[selectedBuilding]) {
+      const rooms = roomsByBuilding[selectedBuilding];
+      rooms.forEach(room => {
+        const option = document.createElement('option');
+        option.value = room.name;
+        option.text = room.name;
+        roomSelect.appendChild(option);
+      });
+    }
+  }
+
+  function toggleMenu(event, menuId) {
+    event.stopPropagation();
+    const menu = document.getElementById(menuId);
+    
+    // Cerrar otros menús
+    document.querySelectorAll('.action-menu__dropdown').forEach(m => {
+      if (m.id !== menuId) {
+        m.style.display = 'none';
+      }
+    });
+    
+    // Toggle menú actual
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function openBlockMenuModal(cardUid, studentLabel, roomLabel) {
+    document.getElementById('block-student').value = studentLabel;
+    document.getElementById('block-card-uid').value = cardUid;
+    document.getElementById('block-room').value = roomLabel || '';
+    document.getElementById('block-reason').value = '';
+    
+    // Cerrar menú
+    document.querySelectorAll('.action-menu__dropdown').forEach(m => {
+      m.style.display = 'none';
+    });
+    
     document.getElementById('block-modal').classList.add('active');
   }
 
@@ -242,58 +380,31 @@
     document.getElementById('block-form').reset();
   }
 
-  function closeConfirmModal() {
-    document.getElementById('confirm-modal').classList.remove('active');
-  }
+  // Cerrar menús al hacer click afuera
+  document.addEventListener('click', function(event) {
+    if (!event.target.closest('.action-menu')) {
+      document.querySelectorAll('.action-menu__dropdown').forEach(m => {
+        m.style.display = 'none';
+      });
+    }
+  });
 
-  function updateSearchInput() {
-    const searchType = document.getElementById('search-type').value;
-    fetch(`{{ url_for('get_search_options', search_type='TYPE') }}`.replace('TYPE', searchType))
-      .then(r => r.json())
-      .then(data => updateDatalist(data))
-      .catch(err => console.error(err));
-  }
-
-  function updateDatalist(data) {
-    const datalist = document.getElementById('students-list');
-    datalist.innerHTML = '';
-    const options = data.options || [];
-    options.forEach(opt => {
-      const option = document.createElement('option');
-      option.value = opt;
-      datalist.appendChild(option);
-    });
-  }
-
-  function updateRoomsByBuilding() {
-    const buildingSelect = document.getElementById('building');
-    const roomSelect = document.getElementById('room');
-    roomSelect.innerHTML = '<option value="">Todos</option>';
-  }
-
-  function handleBlockSubmit(event) {
-    event.preventDefault();
-    const student = document.getElementById('block-student').value;
-    const room = document.getElementById('block-room').value;
-    const reason = document.getElementById('block-reason').value;
-
-    document.getElementById('confirm-student').textContent = student;
-    document.getElementById('confirm-room').textContent = room;
-    document.getElementById('confirm-reason').textContent = reason || 'No especificado';
-
-    closeBlockModal();
-    document.getElementById('confirm-modal').classList.add('active');
-  }
-
-  function confirmBlock() {
-    document.getElementById('block-form').submit();
-  }
-
-  // Abrir modal con tecla Escape
+  // Cerrar modal con Escape
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       closeBlockModal();
-      closeConfirmModal();
+    }
+  });
+
+  // Inicializar filtros al cargar la página
+  document.addEventListener('DOMContentLoaded', () => {
+    // Actualizar autocompletado según el tipo seleccionado
+    updateSearchInput();
+    
+    // Si hay un edificio seleccionado, actualizar salones
+    const building = document.getElementById('building').value;
+    if (building) {
+      updateRoomsByBuilding();
     }
   });
 </script>

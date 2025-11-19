@@ -15,6 +15,7 @@ ACCESS_BLOCKS_TABLE = "access_blocks"
 RFID_CARDS_TABLE = "rfid_cards"
 ROOMS_TABLE = "rooms"
 BUILDINGS_TABLE = "buildings"
+USERS_TABLE = "users"
 
 def _create_supabase_client() -> Client:
     url = os.getenv("SUPABASE_URL")
@@ -43,11 +44,16 @@ def _parse_date_filter(value: str, *, end_of_day: bool = False) -> Optional[str]
     if not value:
         return None
     try:
-        parsed = datetime.strptime(value, "%Y-%m-%d")
-        if end_of_day:
-            parsed = parsed.replace(hour=23, minute=59, second=59)
+        # Intentar parsear como datetime-local (YYYY-MM-DDTHH:mm)
+        if 'T' in value:
+            parsed = datetime.fromisoformat(value)
+        else:
+            # Parsear como date simple (YYYY-MM-DD)
+            parsed = datetime.strptime(value, "%Y-%m-%d")
+            if end_of_day:
+                parsed = parsed.replace(hour=23, minute=59, second=59)
         return parsed.isoformat()
-    except ValueError:
+    except (ValueError, TypeError):
         return None
 
 
@@ -154,13 +160,48 @@ def _fetch_access_logs(client: Client, filters: Dict[str, Any]) -> Dict[str, Any
         filtered_events = enriched_events
         
         if filters.get("student"):
-            search_term = filters["student"].lower()
-            filtered_events = [
-                e for e in filtered_events
-                if search_term in str(e.get("rfid_card", {}).get("person_name", "")).lower()
-                or search_term in str(e.get("rfid_card", {}).get("student_code", "")).lower()
-                or search_term in str(e.get("card_uid", "")).lower()
-            ]
+            search_type = filters.get("search_type", "all")
+            
+            # Para búsqueda por usuario, NO hacer lowercase (es un UUID)
+            if search_type == "user":
+                search_term = filters["student"]  # Mantener UUID tal como está
+            else:
+                search_term = filters["student"].lower()  # Para texto, convertir a lowercase
+            
+            if search_type == "all":
+                # Buscar en todo
+                filtered_events = [
+                    e for e in filtered_events
+                    if search_term in str(e.get("rfid_card", {}).get("person_name", "")).lower()
+                    or search_term in str(e.get("rfid_card", {}).get("student_code", "")).lower()
+                    or search_term in str(e.get("card_uid", "")).lower()
+                ]
+            elif search_type == "name":
+                # Buscar solo en nombre de la tarjeta
+                filtered_events = [
+                    e for e in filtered_events
+                    if search_term in str(e.get("rfid_card", {}).get("person_name", "")).lower()
+                ]
+            elif search_type == "code":
+                # Buscar solo en código de la tarjeta
+                filtered_events = [
+                    e for e in filtered_events
+                    if search_term in str(e.get("rfid_card", {}).get("student_code", "")).lower()
+                ]
+            elif search_type == "uid":
+                # Buscar solo en UID
+                filtered_events = [
+                    e for e in filtered_events
+                    if search_term in str(e.get("card_uid", "")).lower()
+                ]
+            elif search_type == "user":
+                # Buscar por usuario ACTUALMENTE asignado a la tarjeta
+                # El search_term es el ID del usuario (sin transformar a lowercase)
+                if search_term:
+                    filtered_events = [
+                        e for e in filtered_events
+                        if e.get("rfid_card", {}).get("user_id") and e.get("rfid_card", {}).get("user_id") == search_term
+                    ]
         
         if filters.get("room"):
             filtered_events = [
@@ -180,15 +221,16 @@ def _fetch_access_logs(client: Client, filters: Dict[str, Any]) -> Dict[str, Any
 
 
 def _fetch_filter_options(client: Client) -> Dict[str, Any]:
-    """Obtiene opciones para filtros: estudiantes, salones, edificios."""
+    """Obtiene opciones para filtros: estudiantes, salones, edificios, usuarios."""
     options: Dict[str, Any] = {
         "students": [],
         "students_by_name": [],
         "students_by_code": [],
         "students_by_uid": [],
+        "users": [],  # Nuevo: usuarios del sistema
         "rooms": [],
         "buildings": [],
-        "rooms_by_building": {},  # Nuevo: salones agrupados por edificio
+        "rooms_by_building": {},
     }
 
     try:
@@ -222,6 +264,22 @@ def _fetch_filter_options(client: Client) -> Dict[str, Any]:
     except Exception:
         pass
 
+    # Obtener usuarios del sistema
+    try:
+        resp_users = client.table(USERS_TABLE).select("id, name, email").order("name").execute()
+        if resp_users.data:
+            user_list = []
+            for user in resp_users.data:
+                if user.get("name"):
+                    user_list.append({
+                        "id": user.get("id"),
+                        "name": user.get("name"),
+                        "email": user.get("email", "")
+                    })
+            options["users"] = sorted(user_list, key=lambda x: x.get("name", "").lower())
+    except Exception:
+        pass
+
     try:
         resp_buildings = client.table(BUILDINGS_TABLE).select("*").order("name").execute()
         if resp_buildings.data:
@@ -241,7 +299,7 @@ def _fetch_filter_options(client: Client) -> Dict[str, Any]:
                     )
                     if rooms_resp.data:
                         options["rooms_by_building"][building_name] = [
-                            r["name"] for r in rooms_resp.data if r.get("name")
+                            r for r in rooms_resp.data if r.get("name")
                         ]
                 except Exception:
                     pass
@@ -426,13 +484,36 @@ def create_app(existing_supabase: Optional[Client] = None) -> Flask:
                 if not user:
                     raise ValueError("No se pudo recuperar la información del usuario.")
 
+                # Obtener información del usuario de nuestra tabla
+                user_name = email.split("@")[0]
+                is_admin = False
+                
+                try:
+                    user_data_resp = (
+                        app.supabase.table(USERS_TABLE)
+                        .select("*")
+                        .eq("id", user.id)
+                        .limit(1)
+                        .execute()
+                    )
+                    
+                    if user_data_resp.data and len(user_data_resp.data) > 0:
+                        user_data = user_data_resp.data[0]
+                        is_admin = user_data.get("is_admin", False)
+                        user_name = user_data.get("name", email.split("@")[0])
+                except Exception as user_fetch_error:
+                    # Si no se puede obtener datos del usuario, usar valores por defecto
+                    pass
+
                 session["user"] = {
                     "id": user.id,
                     "email": user.email,
+                    "name": user_name,
+                    "is_admin": is_admin,
                 }
                 flash("Inicio de sesión exitoso.", "success")
                 return redirect(url_for("dashboard"))
-            except Exception:
+            except Exception as e:
                 flash("Credenciales inválidas o error de autenticación.", "danger")
 
         if "user" in session:
@@ -459,6 +540,14 @@ def create_app(existing_supabase: Optional[Client] = None) -> Flask:
     @_login_required
     def dashboard():
         assert app.supabase is not None
+        user_is_admin = session.get("user", {}).get("is_admin", False)
+        user_id = session.get("user", {}).get("id")
+        
+        # Si el usuario no es admin, redirigir a su perfil
+        if not user_is_admin:
+            return redirect(url_for("my_profile"))
+        
+        # SOLO ADMIN VE ESTO
         limit_arg = request.args.get("limit", "").strip()
         try:
             parsed_limit = int(limit_arg) if limit_arg else 0
@@ -468,6 +557,7 @@ def create_app(existing_supabase: Optional[Client] = None) -> Flask:
 
         raw_filters = {
             "student": request.args.get("student", "").strip(),
+            "search_type": request.args.get("search_type", "all").strip(),
             "room": request.args.get("room", "").strip(),
             "building": request.args.get("building", "").strip(),
             "limit": parsed_limit,
@@ -509,6 +599,7 @@ def create_app(existing_supabase: Optional[Client] = None) -> Flask:
             )
         filter_defaults = {
             "student": raw_filters["student"],
+            "search_type": raw_filters["search_type"],
             "room": raw_filters["room"],
             "building": raw_filters["building"],
             "start_date": request.args.get("start_date", ""),
@@ -529,6 +620,64 @@ def create_app(existing_supabase: Optional[Client] = None) -> Flask:
         session.pop("user", None)
         flash("Sesión cerrada correctamente.", "info")
         return redirect(url_for("login"))
+
+    @app.route("/register", methods=["GET", "POST"])
+    def register():
+        if request.method == "POST":
+            email = request.form.get("email", "").strip()
+            password = request.form.get("password", "").strip()
+            name = request.form.get("name", "").strip()
+            confirm_password = request.form.get("confirm_password", "").strip()
+
+            if not email or not password or not name:
+                flash("Todos los campos son obligatorios.", "danger")
+                return render_template("register.html")
+
+            if password != confirm_password:
+                flash("Las contraseñas no coinciden.", "danger")
+                return render_template("register.html")
+
+            if len(password) < 6:
+                flash("La contraseña debe tener al menos 6 caracteres.", "danger")
+                return render_template("register.html")
+
+            try:
+                assert app.supabase is not None
+                
+                # Crear usuario en Auth (el trigger en BD crea automáticamente el registro en users)
+                auth_response = app.supabase.auth.sign_up({
+                    "email": email,
+                    "password": password,
+                    "options": {
+                        "data": {
+                            "name": name,
+                        }
+                    }
+                })
+                
+                auth_user = getattr(auth_response, "user", None)
+                if not auth_user:
+                    raise ValueError("Error al crear usuario de autenticación.")
+
+                # Confirmar email automáticamente usando admin API
+                try:
+                    app.supabase.auth.admin.update_user_by_id(
+                        auth_user.id,
+                        {"email_confirm": True}
+                    )
+                except Exception as confirm_error:
+                    # Si falla la confirmación automática, no impide el registro
+                    print(f"Advertencia: No se pudo confirmar email automáticamente: {confirm_error}")
+
+                flash("Registro exitoso. Ya puedes iniciar sesión.", "success")
+                return redirect(url_for("login"))
+            except Exception as e:
+                flash(f"Error en el registro: {str(e)}", "danger")
+
+        if "user" in session:
+            return redirect(url_for("dashboard"))
+
+        return render_template("register.html")
 
     @app.route("/block-access", methods=["POST"])
     @_login_required
@@ -843,7 +992,251 @@ def create_app(existing_supabase: Optional[Client] = None) -> Flask:
         except Exception as exc:
             flash(f"Error al eliminar salón: {exc}", "danger")
         
-        fallback = next_url if _is_safe_redirect(next_url) else url_for("rooms")
+        fallback = next_url if _is_safe_redirect(next_url) else url_for("spaces")
+        return redirect(fallback)
+
+    @app.route("/manage-cards")
+    @_login_required
+    def manage_cards():
+        """Gestión de tarjetas RFID (solo para admin)."""
+        assert app.supabase is not None
+        
+        if not session.get("user", {}).get("is_admin"):
+            flash("No tienes permisos para acceder a esta página.", "danger")
+            return redirect(url_for("dashboard"))
+        
+        # Obtener todas las tarjetas con información del usuario
+        try:
+            cards_resp = (
+                app.supabase.table(RFID_CARDS_TABLE)
+                .select("*")
+                .order("created_at", desc=True)
+                .limit(500)
+                .execute()
+            )
+            cards = cards_resp.data or [] if not getattr(cards_resp, "error", None) else []
+            
+            # Enriquecer con datos de usuario
+            for card in cards:
+                if card.get("user_id"):
+                    try:
+                        user_resp = (
+                            app.supabase.table(USERS_TABLE)
+                            .select("*")
+                            .eq("id", card["user_id"])
+                            .single()
+                            .execute()
+                        )
+                        card["_user"] = user_resp.data if user_resp.data else None
+                    except Exception:
+                        card["_user"] = None
+                else:
+                    card["_user"] = None
+        except Exception:
+            cards = []
+        
+        # Obtener lista de usuarios disponibles para asignar
+        try:
+            users_resp = (
+                app.supabase.table(USERS_TABLE)
+                .select("*")
+                .order("name")
+                .execute()
+            )
+            users = users_resp.data or [] if not getattr(users_resp, "error", None) else []
+        except Exception:
+            users = []
+        
+        return render_template(
+            "manage_cards.html",
+            user=session.get("user"),
+            cards=cards,
+            users=users,
+        )
+
+    @app.route("/add-card", methods=["POST"])
+    @_login_required
+    def add_card():
+        """Añade una nueva tarjeta RFID."""
+        assert app.supabase is not None
+        
+        if not session.get("user", {}).get("is_admin"):
+            flash("No tienes permisos para realizar esta acción.", "danger")
+            return redirect(url_for("dashboard"))
+        
+        uid = request.form.get("uid", "").strip()
+        name = request.form.get("name", "").strip()
+        code = request.form.get("code", "").strip()
+        user_id = request.form.get("user_id", "").strip() or None
+        next_url = request.form.get("next", "")
+        
+        if not uid or not name or not code:
+            flash("UID, nombre y código son obligatorios.", "danger")
+        else:
+            try:
+                payload = {
+                    "uid": uid,
+                    "person_name": name,
+                    "student_code": code,
+                }
+                if user_id:
+                    payload["user_id"] = user_id
+                
+                response = app.supabase.table(RFID_CARDS_TABLE).insert(payload).execute()
+                if not getattr(response, "error", None):
+                    flash(f"Tarjeta '{name}' creada correctamente.", "success")
+                else:
+                    flash(f"Error al crear tarjeta: {response.error}", "danger")
+            except Exception as exc:
+                flash(f"Error al crear tarjeta: {exc}", "danger")
+        
+        fallback = next_url if _is_safe_redirect(next_url) else url_for("manage_cards")
+        return redirect(fallback)
+
+    @app.route("/edit-card/<card_uid>", methods=["POST"])
+    @_login_required
+    def edit_card(card_uid: str):
+        """Edita una tarjeta RFID."""
+        assert app.supabase is not None
+        
+        if not session.get("user", {}).get("is_admin"):
+            flash("No tienes permisos para realizar esta acción.", "danger")
+            return redirect(url_for("dashboard"))
+        
+        uid = request.form.get("uid", "").strip()
+        name = request.form.get("name", "").strip()
+        code = request.form.get("code", "").strip()
+        user_id = request.form.get("user_id", "").strip() or None
+        next_url = request.form.get("next", "")
+        
+        if not uid or not name or not code:
+            flash("UID, nombre y código son obligatorios.", "danger")
+        else:
+            try:
+                payload = {
+                    "uid": uid,
+                    "person_name": name,
+                    "student_code": code,
+                }
+                if user_id:
+                    payload["user_id"] = user_id
+                else:
+                    payload["user_id"] = None
+                
+                response = app.supabase.table(RFID_CARDS_TABLE).update(payload).eq("uid", card_uid).execute()
+                if not getattr(response, "error", None):
+                    flash(f"Tarjeta actualizada correctamente.", "success")
+                else:
+                    flash(f"Error al actualizar tarjeta: {response.error}", "danger")
+            except Exception as exc:
+                flash(f"Error al actualizar tarjeta: {exc}", "danger")
+        
+        fallback = next_url if _is_safe_redirect(next_url) else url_for("manage_cards")
+        return redirect(fallback)
+
+    @app.route("/my-profile")
+    @_login_required
+    def my_profile():
+        """Perfil del usuario con su tarjeta y accesos."""
+        assert app.supabase is not None
+        user_id = session.get("user", {}).get("id")
+        
+        # Obtener tarjeta del usuario
+        user_card = None
+        try:
+            card_resp = (
+                app.supabase.table(RFID_CARDS_TABLE)
+                .select("*")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if card_resp.data and len(card_resp.data) > 0:
+                user_card = card_resp.data[0]
+        except Exception:
+            pass
+        
+        # Obtener accesos del usuario (si tiene tarjeta asignada)
+        user_accesses = []
+        if user_card:
+            try:
+                accesses_resp = (
+                    app.supabase.table(ACCESS_EVENTS_TABLE)
+                    .select("*")
+                    .eq("card_uid", user_card["uid"])
+                    .order("event_time", desc=True)
+                    .limit(100)
+                    .execute()
+                )
+                
+                if accesses_resp.data:
+                    for access in accesses_resp.data:
+                        enriched = dict(access)
+                        
+                        # Obtener datos de sala
+                        if access.get("room_id"):
+                            try:
+                                room_resp = (
+                                    app.supabase.table(ROOMS_TABLE)
+                                    .select("*")
+                                    .eq("id", access["room_id"])
+                                    .limit(1)
+                                    .execute()
+                                )
+                                if room_resp.data and len(room_resp.data) > 0:
+                                    room_data = room_resp.data[0]
+                                    enriched["room"] = room_data
+                                    
+                                    # Obtener datos de edificio
+                                    if room_data.get("building_id"):
+                                        try:
+                                            building_resp = (
+                                                app.supabase.table(BUILDINGS_TABLE)
+                                                .select("*")
+                                                .eq("id", room_data["building_id"])
+                                                .limit(1)
+                                                .execute()
+                                            )
+                                            if building_resp.data and len(building_resp.data) > 0:
+                                                enriched["building"] = building_resp.data[0]
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                pass
+                        
+                        user_accesses.append(enriched)
+            except Exception:
+                pass
+        
+        return render_template(
+            "my_profile.html",
+            user=session.get("user"),
+            user_card=user_card,
+            accesses=user_accesses,
+        )
+
+    @app.route("/delete-card/<card_uid>", methods=["POST"])
+    @_login_required
+    def delete_card(card_uid: str):
+        """Elimina una tarjeta RFID."""
+        assert app.supabase is not None
+        
+        if not session.get("user", {}).get("is_admin"):
+            flash("No tienes permisos para realizar esta acción.", "danger")
+            return redirect(url_for("dashboard"))
+        
+        next_url = request.form.get("next", "")
+        
+        try:
+            response = app.supabase.table(RFID_CARDS_TABLE).delete().eq("uid", card_uid).execute()
+            if not getattr(response, "error", None):
+                flash("Tarjeta eliminada correctamente.", "success")
+            else:
+                flash(f"Error al eliminar tarjeta: {response.error}", "danger")
+        except Exception as exc:
+            flash(f"Error al eliminar tarjeta: {exc}", "danger")
+        
+        fallback = next_url if _is_safe_redirect(next_url) else url_for("manage_cards")
         return redirect(fallback)
 
     return app
