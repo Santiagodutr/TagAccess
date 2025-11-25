@@ -14,8 +14,7 @@ dist/
 build/
 
 # Local Database Files
-raspberry/*.db
-raspberry/local_data.db
+
 frontend/*.db
 
 node_modules/

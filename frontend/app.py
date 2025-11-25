@@ -460,10 +460,31 @@ def create_app(existing_supabase: Optional[Client] = None) -> Flask:
     app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-me")
     app.supabase = existing_supabase
 
+    # Rutas de diagnóstico rápidas (no requieren auth)
+    @app.route("/_health")
+    def _health():
+        return "OK", 200
+
+    @app.route("/_info")
+    def _info():
+        routes = [str(r) for r in app.url_map.iter_rules()]
+        return {
+            "root_path": app.root_path,
+            "static_folder": app.static_folder,
+            "template_folder": app.template_folder,
+            "routes": routes,
+        }
+
     @app.before_request
     def ensure_supabase_client() -> None:
         if app.supabase is None:
-            app.supabase = _create_supabase_client()
+            try:
+                app.supabase = _create_supabase_client()
+            except Exception as e:
+                # No abortar la petición en modo desarrollo si falta configuración.
+                # Logueamos la advertencia para depuración y dejamos app.supabase en None.
+                print(f"Warning: could not create supabase client: {e}")
+                app.supabase = None
 
     @app.route("/", methods=["GET", "POST"])
     def login():
@@ -1247,4 +1268,10 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
+    # Imprimir resumen de rutas y carpeta static para ayudar al diagnóstico
+    print("Starting Flask app. Registered routes:")
+    for rule in app.url_map.iter_rules():
+        methods = ",".join(sorted(rule.methods))
+        print(f"  {rule} -> methods={methods} endpoint={rule.endpoint}")
+    print(f"Static folder: {app.static_folder}")
     app.run(host="0.0.0.0", port=port, debug=os.getenv("DEBUG", "false").lower() == "true")
