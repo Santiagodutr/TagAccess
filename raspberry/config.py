@@ -15,7 +15,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "sb_secret_itpJx_rXQ6x7lzL4ADmcvQ_
 if not SUPABASE_KEY:
     raise ValueError("SUPABASE_ANON_KEY no está configurado en .env")
 
-LOCAL_DB = os.getenv("LOCAL_DB", "/var/local/tagpass.db")
+LOCAL_DB = os.getenv("LOCAL_DB", "./tagpass.db")
 
 # Ya no configuramos ROOM_ID/DEVICE_ID manualmente. Se descubren desde la BD.
 # Puedes opcionalmente dar un nombre y ubicación para registrar o encontrar este dispositivo.
