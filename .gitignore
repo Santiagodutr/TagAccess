@@ -1,5 +1,4 @@
 # Environment Configuration (NEVER commit credentials)
-.env
 .env.local
 .env.*.local
 

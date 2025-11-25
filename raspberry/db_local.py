@@ -1,18 +1,11 @@
 import sqlite3
+import os
 from typing import Tuple
 DEFAULT_ROOM_ID = ""
 
-# Utilidad simple para obtener una conexión con WAL habilitado (mejor para escrituras concurrentes)
-def _connect(db_path):
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-    except Exception:
-        pass
-    return conn
 
-def init_local_db(db_path):
-    conn = _connect(db_path)
+def _ensure_schema(conn: sqlite3.Connection):
+    """Crea las tablas necesarias y aplica migraciones sobre la conexión dada."""
     c = conn.cursor()
 
     # Tabla de registros RFID leídos localmente
@@ -25,7 +18,6 @@ def init_local_db(db_path):
             authorized INTEGER DEFAULT 1,
             synced INTEGER DEFAULT 0
         );
-        
         """
     )
 
@@ -47,7 +39,46 @@ def init_local_db(db_path):
     _migrate_local_events_add_authorized(conn)
     _migrate_blocked_cards_add_room(conn)
 
-    conn.close()
+
+# Utilidad simple para obtener una conexión con WAL habilitado (mejor para escrituras concurrentes)
+def _connect(db_path):
+    """Intenta conectar. Si falla, crea la carpeta/archivo .db y crea el esquema mínimo."""
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.Error:
+        # Intentar crear carpeta padre si es necesario
+        dirpath = os.path.dirname(db_path)
+        if dirpath:
+            try:
+                os.makedirs(dirpath, exist_ok=True)
+            except Exception:
+                pass
+        # "Tocar" el fichero para forzar su creación
+        try:
+            open(db_path, "a").close()
+        except Exception:
+            pass
+        # Reintentar conexión (si falla, dejar que la excepción suba)
+        conn = sqlite3.connect(db_path)
+        # Si acabamos de crear el fichero, intentamos crear el esquema básico
+        try:
+            _ensure_schema(conn)
+        except Exception:
+            pass
+
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
+    return conn
+
+def init_local_db(db_path):
+    """Inicializa la BD local asegurando la conexión y el esquema."""
+    conn = _connect(db_path)
+    try:
+        _ensure_schema(conn)
+    finally:
+        conn.close()
 
 
 def _table_has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:

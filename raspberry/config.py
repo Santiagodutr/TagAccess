@@ -6,12 +6,12 @@ load_dotenv()
 
 # Supabase Cloud Configuration
 # Obtén estos valores del Supabase Dashboard
-SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://bapldjpazhvdczjvsljd.supabase.co")
 if not SUPABASE_URL:
     raise ValueError("SUPABASE_URL no está configurado en .env")
 
 # Publishable (anon) key - NUNCA uses service role key en el cliente
-SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "sb_secret_itpJx_rXQ6x7lzL4ADmcvQ_aZ_tFGcp")
 if not SUPABASE_KEY:
     raise ValueError("SUPABASE_ANON_KEY no está configurado en .env")
 
@@ -32,11 +32,11 @@ BACKOFF_MAX = int(os.getenv("BACKOFF_MAX", "300"))
 # Credenciales del usuario de servicio para este dispositivo
 # IMPORTANTE: Crea un usuario específico en Supabase Auth para cada Raspberry
 # No uses credenciales compartidas. Este usuario debe tener permisos limitados.
-SUPABASE_EMAIL = os.getenv("SUPABASE_EMAIL")
+SUPABASE_EMAIL = os.getenv("SUPABASE_EMAIL","raspberry1@tagpass.com")
 if not SUPABASE_EMAIL:
     raise ValueError("SUPABASE_EMAIL no está configurado en .env")
 
-SUPABASE_PASSWORD = os.getenv("SUPABASE_PASSWORD")
+SUPABASE_PASSWORD = os.getenv("SUPABASE_PASSWORD","123456")
 if not SUPABASE_PASSWORD:
     raise ValueError("SUPABASE_PASSWORD no está configurado en .env")
 
